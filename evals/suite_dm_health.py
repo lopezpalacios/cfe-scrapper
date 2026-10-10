@@ -106,22 +106,21 @@ def _canonical_coherent():
 
 def _canonical_mi_espacio():
     docs, one, matches, contested, won, *_ = _row()
-    if contested == 0:
-        return True
-    return won == contested
+    # mechanism presence: contested docs must EXIST (a regression that stops
+    # dual-source harvesting fails); the win rule is mie > consulta > contigo,
+    # so only docs containing a mie source are checked for the mie win
+    return contested > 0 and won == contested
 
 
 def _identity_integrity():
     docs, one, matches, contested, won, n_ok, n, bad_master, *_ = _row()
-    if n == 0:
-        return False
-    # anchor contract: every invoice whose rpu IS a known client must be
-    # linked; corpus rpus not yet onboarded as clients are legitimately null
-    return n_ok / n >= 0.99 and bad_master == 0
+    # anchor contract: EVERY invoice whose rpu IS a known client must be
+    # linked — exact equality, not a population ratio
+    return n_ok == n and bad_master == 0
 
 
 def _typed_population():
-    docs, one, matches, contested, won, n, matched, ok, total, *_ = _row()
+    docs, one, matches, contested, won, n, matched, bad_master, ok, total, *_ = _row()
     if total == 0:
         return False
     return ok / total >= 0.5

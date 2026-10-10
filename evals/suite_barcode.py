@@ -22,7 +22,7 @@ WORK.mkdir(exist_ok=True)
 
 def _decode(pdf: Path) -> str:
     out = subprocess.run(["bash", DECODE, str(pdf)], capture_output=True, text=True)
-    return out.stdout.strip() if out.returncode == 0 else ""
+    return out.stdout.strip()
 
 
 def _variant(name: str, build) -> Path:

@@ -10,8 +10,10 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SKILL_SCRIPTS = Path(
-    "/Users/newman/.hermes/skills/cf-invoice-harvest/scripts")
+HERE = Path(__file__).resolve().parent
+SKILL_SCRIPTS = HERE.parent / "hermes" / "skills" / "cf-invoice-harvest" / "scripts"
+if not (SKILL_SCRIPTS / "parse_cfdi.py").exists():
+    SKILL_SCRIPTS = Path("/Users/newman/.hermes/skills/cf-invoice-harvest/scripts")
 sys.path.insert(0, str(SKILL_SCRIPTS))
 from parse_cfdi import parse_one  # noqa: E402
 
@@ -31,17 +33,17 @@ def _golden():
 def _invariant_ok(path: Path) -> tuple:
     """Run parse_one and check schema invariants. Returns (ok, why)."""
     b = parse_one(path)
-    if not b.get("rpu") or not re.fullmatch(r"\d{12}", b["rpu"] or ""):
-        return False, "rpu"
+    if not b.get("rpu") or b["rpu"] != path.parent.parent.name:
+        return False, "rpu"  # free ground truth: the corpus dir IS the rpu
     if not b.get("nombre"):
         return False, "nombre"
-    if not b.get("rfc"):
+    if not b.get("rfc") or not re.fullmatch(r"[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}", b["rfc"] or ""):
         return False, "rfc"
-    if not b.get("tarifa"):
+    if not b.get("tarifa") or b["tarifa"] not in KNOWN_TARIFAS:
         return False, "tarifa"
     if not b.get("total") or b["total"] <= 0:
         return False, "total"
-    if b.get("consumo_kwh") is None or b["consumo_kwh"] < 0:
+    if not b.get("consumo_kwh") or b["consumo_kwh"] <= 0:
         return False, "consumo"
     if not b.get("fecha"):
         return False, "fecha"
@@ -57,21 +59,17 @@ def _corpus_pass_ratio(n: int):
         raise RuntimeError(f"no XMLs under {corpus}")
     ok = 0
     counted = 0
-    skipped_empty = 0
     for p in sample:
-        if p.stat().st_size == 0:
-            skipped_empty += 1  # failed download, not a CFDI
-            continue
         counted += 1
+        if p.stat().st_size == 0:
+            continue  # empty = failed download: counted, not ok
         try:
             good, _ = _invariant_ok(p)
         except Exception:
             good = False
         ok += good
-    if skipped_empty:
-        print(f"  corpus: skipped {skipped_empty} empty (harvest-artifact) files")
     if counted == 0:
-        raise RuntimeError("no non-empty XMLs in corpus sample")
+        raise RuntimeError("empty corpus sample")
     return ok / counted
 
 

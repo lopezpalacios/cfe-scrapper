@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """kameloso layer-0 eval runner — zero-dependency, frozen metric.
 
-Score = sum over suites (max 100):
-  parser_golden    30  golden CFDI assertions (976000601419)
-  parser_corpus    25  schema-invariant pass% over the XML corpus
-  barcode          20  real bills + degraded variants decode to the right RPU
-  mfa              15  MFA-code extraction incl. distractor rejection
-  endpoint         10  POST /v1/rpu happy path + error taxonomy
+Score = sum over suites (max 230, fixed denominator):
+  suite_parser     55  golden assertions + corpus invariants
+  suite_barcode    20  real bills + degraded variants + never-wrong safety
+  suite_mfa        15  MFA extraction incl. distractor rejection
+  suite_endpoint   10  POST /v1/rpu happy path + error taxonomy
+  suite_tariff     10  manifest months stored + NodosP populated
+  suite_datamodel  10  typed model populated + failure rate
+  suite_dm_health 100  canonical/identity/population/enum health
 
 Usage: python3 run.py [--corpus N] [--quick]
 Prints per-case results, suite totals, and the overall score as the last line:
@@ -33,7 +35,8 @@ def main() -> int:
 
     suites = ["suite_parser", "suite_barcode", "suite_mfa", "suite_endpoint", "suite_tariff", "suite_datamodel", "suite_dm_health"]
     total = 0.0
-    max_total = 0.0
+    # frozen denominator: a missing/broken suite scores 0, never shrinks it
+    max_total = 230.0
     failed = 0
     for name in suites:
         try:
@@ -42,7 +45,6 @@ def main() -> int:
             print(f"SUITE {name}: SKIP ({exc})")
             continue
         weight = float(getattr(mod, "WEIGHT", 0))
-        max_total += weight
         suite_pts = 0.0
         for case in getattr(mod, "CASES", []):
             if quick and case.get("slow"):

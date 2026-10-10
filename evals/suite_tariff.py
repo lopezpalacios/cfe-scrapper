@@ -20,12 +20,9 @@ if p.exists():
             KEY = line.split("=", 1)[1].strip()
 
 def _manifest_months():
-    import json as _json
-    p = Path("/Users/newman/newman-agents/newman-backend/scrapers/manifest.json")
-    if not p.exists():
-        return set()
-    entries = _json.loads(p.read_text())
-    return {(e["year"], e["month"]) for e in entries}
+    # Literal ground truth (decision.tsv iter7/8): the verified full-fidelity
+    # months. NOT read from the manifest — a truncated manifest must fail.
+    return {(2024, 12), (2025, 2), (2025, 6), (2025, 7), (2025, 9), (2025, 12)}
 
 
 def _rpc(fn: str, body: dict):

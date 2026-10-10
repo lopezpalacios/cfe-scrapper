@@ -14,21 +14,27 @@ URL = os.environ.get(
     "RPU_INTAKE_URL",
     "https://oioyawhgvazebtarigpc.supabase.co/functions/v1/rpu-intake")
 KEY = os.environ.get("INTAKE_KEY") or ""
-if not KEY:
-    p = Path("~/.cfe.env").expanduser()
-    if p.exists():
-        for line in p.read_text().splitlines():
-            if line.startswith("export INTAKE_KEY="):
-                KEY = line.split("=", 1)[1].strip()
+
+
+def _key() -> str:
+    global KEY
+    if not KEY:
+        p = Path("~/.cfe.env").expanduser()
+        if p.exists():
+            for line in p.read_text().splitlines():
+                if line.startswith("export INTAKE_KEY="):
+                    KEY = line.split("=", 1)[1].strip()
     if not KEY:
         raise RuntimeError("INTAKE_KEY missing from ~/.cfe.env")
+    return KEY
 
 
 def _fresh_rpu() -> str:
     return "0" + "".join(secrets.choice("0123456789") for _ in range(11))
 
 
-def _post(body, key=KEY):
+def _post(body, key=None):
+    key = key if key is not None else _key()
     headers = {"content-type": "application/json"}
     if key:
         headers["x-intake-key"] = key
