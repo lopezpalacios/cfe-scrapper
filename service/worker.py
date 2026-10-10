@@ -73,7 +73,19 @@ def supabase_rpc(fn: str, body: dict) -> dict:
 
 # ── harvest legs (thin wrappers over the proven recipes in harvest/) ───────
 def run_harvest(rpu: str) -> dict:
-    """MiEspacio cycle. Returns the parsed-bill summary."""
+    """MiEspacio cycle. Agent-first: Browser Use Cloud drives the portal
+    (MX residential proxy, layout-adaptive); the deterministic puppeteer
+    path (harvest/harvest.js) stays as the fallback."""
+    out = subprocess.run(
+        [sys.executable, str(APP / "browseruse" / "scrape_miespacio.py"), rpu],
+        capture_output=True, text=True, timeout=3000,
+        env={**os.environ, "SUPABASE_URL": env("SUPABASE_URL"),
+             "SUPABASE_SERVICE_ROLE_KEY": env("SUPABASE_SERVICE_ROLE_KEY")})
+    if out.returncode == 0 and out.stdout.strip():
+        try:
+            return json.loads(out.stdout.strip().splitlines()[-1])
+        except json.JSONDecodeError:
+            return {"rpu": rpu, "summary": out.stdout.strip()}
     node = os.environ.get("NODE_BIN", "node")
     out = subprocess.run(
         [node, str(APP / "harvest" / "harvest.js"), rpu],
