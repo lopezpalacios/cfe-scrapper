@@ -37,10 +37,39 @@ def _load_env() -> None:
 
 
 def fetch_latest_mfa_html() -> str | None:
-    user = os.environ.get("MAIL_INTAKE_USER")
-    pwd = os.environ.get("MAIL_INTAKE_APP_PASSWORD")
-    if not user or not pwd:
-        sys.stderr.write("otp: MAIL_INTAKE_* env missing\n")
+    # hermes@newman.re reads its own inbox via the gws CLI (gmail.readonly
+    # scope on the agent's OAuth token). The per-RPU group (rpu-<n>@newman.re)
+    # delivers the portal code to the member inbox; no app password needed.
+    import subprocess as _sp
+    out = _sp.run(
+        [os.path.expanduser("~/.local/bin/gws"), "gmail", "+triage", "--format", "json"],
+        capture_output=True, text=True,
+        env=dict(os.environ, GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND="file"))
+    if out.returncode != 0:
+        sys.stderr.write(f"otp: gws triage failed: {out.stderr.strip()[:200]}\n")
+        return None
+    import json as _json
+    try:
+        inbox = _json.loads(out.stdout)
+    except _json.JSONDecodeError:
+        sys.stderr.write("otp: gws returned non-JSON\n")
+        return None
+    msgs = inbox if isinstance(inbox, list) else (inbox.get("messages") or [])
+    cand = [m for m in msgs
+            if (m.get("from") or {}).get("email", "").lower() == "autenticacion@cfe.mx"
+            and "mfa" in (m.get("subject") or "").lower()]
+    if not cand:
+        sys.stderr.write("otp: no CFE MFA email in hermes@newman.re inbox\n")
+        return None
+    msg_id = cand[0]["id"]
+    out = _sp.run(
+        [os.path.expanduser("~/.local/bin/gws"), "gmail", "+read", "--id", msg_id,
+         "--format", "json"],
+        capture_output=True, text=True,
+        env=dict(os.environ, GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND="file"))
+    try:
+        return (_json.loads(out.stdout).get("body_html") or "")
+    except _json.JSONDecodeError:
         return None
     imap = imaplib.IMAP4_SSL(IMAP_HOST)
     try:

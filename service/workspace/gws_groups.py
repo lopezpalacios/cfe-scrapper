@@ -27,11 +27,17 @@ DIR_URL = "https://admin.googleapis.com/admin/directory/v1"
 
 
 def _load_creds() -> tuple[str, str, str]:
-    cfg = Path.home() / ".config" / "gws"
-    cs = json.loads((cfg / "client_secret.json").read_text())
-    inst = cs.get("installed", cs)
-    creds = json.loads((cfg / "credentials.json").read_text())
-    return inst["client_id"], inst["client_secret"], creds["refresh_token"]
+    # gws stores the live auth encrypted (credentials.enc, file keyring);
+    # export it unmasked through the CLI itself (never printed to logs).
+    import subprocess
+    env = dict(os.environ, GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND="file")
+    out = subprocess.run(
+        ["gws", "auth", "export", "--unmasked"],
+        capture_output=True, text=True, env=env)
+    if out.returncode != 0:
+        raise RuntimeError(f"gws export failed: {out.stderr[:200]}")
+    creds = json.loads(out.stdout)
+    return creds["client_id"], creds["client_secret"], creds["refresh_token"]
 
 
 def _access_token() -> str:
@@ -68,7 +74,15 @@ def create_group(rpu: str) -> str:
         "name": f"CFE RPU {rpu}",
         "description": "Inbox for the CFE portal verification codes of this RPU",
     })
-    _call("POST", f"groups/{email}/members", {"email": MEMBER, "role": "MEMBER"})
+    import time
+    for attempt in range(5):
+        try:
+            _call("POST", f"groups/{email}/members", {"email": MEMBER, "role": "MEMBER"})
+            break
+        except Exception:
+            if attempt == 4:
+                raise
+            time.sleep(2)
     print(email)
     return email
 
