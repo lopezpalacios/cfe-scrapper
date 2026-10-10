@@ -44,11 +44,14 @@ mi_espacio as (
   ) x
 ),
 identity as (
+  -- exact anchor contract over KNOWN clients only: every invoice whose rpu
+  -- IS a crm.rpu must be linked; not-yet-onboarded corpus rpus don't count
   select
     (select count(*) from cfe.invoice i
-      where i.crm_rpu_id is not null
-         or not exists (select 1 from crm.rpu r where r.rpu = i.rpu)) as n_ok,
-    (select count(*) from cfe.invoice) as n,
+      where exists (select 1 from crm.rpu r where r.rpu = i.rpu)
+        and i.crm_rpu_id is not null) as n_ok,
+    (select count(*) from cfe.invoice i
+      where exists (select 1 from crm.rpu r where r.rpu = i.rpu)) as n,
     (select count(*) from crm.rpu r where r.rpu !~ '^[0-9]{12}$') as bad_master
 ),
 population as (
