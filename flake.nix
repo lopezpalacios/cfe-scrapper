@@ -7,7 +7,7 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (system:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
       let
         pkgs = import nixpkgs { inherit system; };
 
@@ -15,21 +15,39 @@
           ps.psycopg2 ps.pdfplumber ps.requests
         ]);
 
+        # puppeteer-core pinned by hash: the same node_modules everywhere.
+        puppeteer-core = pkgs.stdenvNoCC.mkDerivation {
+          name = "puppeteer-core-23.11.1";
+          dontUnpack = true;
+          outputHashAlgo = "sha256";
+          outputHashMode = "recursive";
+          outputHash = "sha256-rcUS5Yr0gcVrNidsR1//LHqBdXZZecMXHjtd23pFDJU=";
+          nativeBuildInputs = [ pkgs.nodejs_20 ];
+          buildPhase = ''
+            runHook preBuild
+            mkdir -p $out
+            cd $out
+            npm init -y --silent >/dev/null
+            npm install puppeteer-core@23.11.1 --silent
+            rm -f package.json package-lock.json
+            runHook postBuild
+          '';
+          installPhase = "true";
+        };
+
         serviceTree = pkgs.stdenv.mkDerivation {
           name = "cfe-scrapper-service";
           src = ./service;
           installPhase = ''
             mkdir -p $out
-            cp -r worker.py decode_rpu.sh harvest $out/
+            cp -r . $out
           '';
         };
 
-        # The reproducible image. The digest is a pure function of the flake
-        # inputs + this source tree: what CI builds is what runs.
+        # Reproducible: inputs pinned via flake.lock, no build-time stamp.
         scraper-image = pkgs.dockerTools.buildImage {
           name = "ghcr.io/lopezpalacios/cfe-scrapper";
           tag = "latest";
-          created = "now";
           copyToRoot = pkgs.buildEnv {
             name = "image-root";
             paths = with pkgs; [
@@ -48,6 +66,7 @@
             Cmd = [ "${python}/bin/python3" "/app/worker.py" ];
             Env = [
               "NODE_BIN=${pkgs.nodejs_20}/bin/node"
+              "NODE_PATH=/app/node_modules"
               "CHROME_PATH=${pkgs.chromium}/bin/chromium"
               "PATH=${pkgs.lib.makeBinPath [ pkgs.python312 pkgs.nodejs_20 pkgs.zbar pkgs.poppler-utils pkgs.coreutils ]}"
             ];
@@ -55,8 +74,9 @@
           extraCommands = ''
             mkdir -p app
             cp -r ${serviceTree}/. app/
-            # legacy scripts reference /usr/bin/google-chrome
-            ln -sf ${pkgs.chromium}/bin/chromium /usr/bin/google-chrome
+            cp -r ${puppeteer-core} app/node_modules
+            mkdir -p usr/bin
+            ln -sf ${pkgs.chromium}/bin/chromium usr/bin/google-chrome
           '';
         };
 
@@ -69,7 +89,10 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = [ python pkgs.nodejs_20 pkgs.zbar pkgs.poppler-utils pkgs.chromium ];
-          shellHook = "export CHROME_PATH=${pkgs.chromium}/bin/chromium";
+          shellHook = ''
+            export CHROME_PATH=${pkgs.chromium}/bin/chromium
+            export NODE_PATH=$(pwd)/node_modules
+          '';
         };
       });
 }

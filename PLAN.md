@@ -23,10 +23,12 @@ cf-invoice-harvest pipeline end to end, marking the job done/failed with the
 classified error.
 
 Steps:
-1. `worker/worker.py` on the mini: claim (lease, idempotent) -> barcode/decode
-   (if media) -> phone lookup -> box harvest -> parse -> rpc/DB write ->
-   job state transition. Reuses the skill scripts verbatim, not re-derived.
-2. Detached runner (osascript/launchd pattern that survived for the gateway).
+1. `service/worker.py` in the image: claim (lease, idempotent) -> vpn_guard
+   (egress must be MX) -> barcode/decode (if media) -> MiEspacio harvest
+   (service/harvest/harvest.js) -> parse -> rpc/DB write -> job state
+   transition. No box dependency.
+2. Deploy: `nix build .#scraper-image && docker load < result && docker run
+   --env-file .env` on the mini with NordVPN-MX up.
 3. Eval: `suite_worker` — a golden end-to-end (976000601419) run gated on
    the phone's NordVPN-MX and a fresh MFA window; layer-0 gates every edit.
 

@@ -82,7 +82,10 @@ def run_harvest(rpu: str) -> dict:
              "SUPABASE_SERVICE_ROLE_KEY": env("SUPABASE_SERVICE_ROLE_KEY")})
     if out.returncode != 0:
         raise RuntimeError(f"harvest failed: {(out.stderr or out.stdout)[:300]}")
-    return json.loads(out.stdout.splitlines()[-1])
+    lines = out.stdout.splitlines()
+    if not lines:
+        raise RuntimeError("harvest returned empty stdout")
+    return json.loads(lines[-1])
 
 
 def decode_rpu(media: str) -> str:
@@ -101,8 +104,8 @@ def main() -> int:
     while True:
         try:
             require_mx()
-        except PermissionError as exc:
-            log(f"vpn: {exc}")
+        except Exception as exc:
+            log(f"vpn: {type(exc).__name__}: {exc}")
             time.sleep(poll * 4)
             continue
         try:
@@ -121,9 +124,12 @@ def main() -> int:
             if job.get("media"):
                 rpu = decode_rpu(job["media"])
             summary = run_harvest(rpu)
-            supabase_rpc("rpc_finish_scrape_job",
-                         {"p_id": jid, "p_state": "done",
-                          "p_summary": summary})
+            try:
+                supabase_rpc("rpc_finish_scrape_job",
+                             {"p_id": jid, "p_state": "done",
+                              "p_summary": summary})
+            except Exception as exc:
+                log(f"{jid} finish-rpc: {exc}")
             log(f"{jid} done: {summary.get('months')} months")
         except Exception as exc:
             cls = "unknown"
@@ -131,9 +137,12 @@ def main() -> int:
                 if e in str(exc):
                     cls = e
                     break
-            supabase_rpc("rpc_finish_scrape_job",
-                         {"p_id": jid, "p_state": "failed",
-                          "p_error_class": cls, "p_detail": str(exc)[:500]})
+            try:
+                supabase_rpc("rpc_finish_scrape_job",
+                             {"p_id": jid, "p_state": "failed",
+                              "p_error_class": cls, "p_detail": str(exc)[:500]})
+            except Exception as exc2:
+                log(f"{jid} finish-rpc: {exc2}")
             log(f"{jid} failed [{cls}]: {exc}")
     return 0
 

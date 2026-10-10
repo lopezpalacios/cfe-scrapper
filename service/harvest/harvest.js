@@ -28,11 +28,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function solveCaptcha(page) {
   // 2captcha: the proven flow posts the captcha image and polls res.php.
-  // Image selector depends on the current MiEspacio captcha widget.
   const imgSel = "img[src*='CaptchaImage'], img[src*='captcha']";
   await page.waitForSelector(imgSel, { timeout: 30000 });
-  const b64 = await page.evaluate(
+  const src = await page.evaluate(
     (sel) => document.querySelector(sel)?.src || "", imgSel);
+  let b64 = "";
+  if (src.startsWith("data:")) {
+    b64 = src.split(",")[1] || "";
+  } else {
+    const buf = await page.evaluate(async (s) => {
+      const r = await fetch(s);
+      const b = await r.blob();
+      return new Promise((res) => {
+        const fr = new FileReader();
+        fr.onloadend = () => res(String(fr.result).split(",")[1] || "");
+        fr.readAsDataURL(b);
+      });
+    }, src);
+    b64 = buf;
+  }
   const body = `key=${encodeURIComponent(process.env.TWOCAPTCHA_KEY || "")}`
     + `&method=base64&json=1&body=${encodeURIComponent(b64)}`;
   const inRes = await (await fetch(`http://2captcha.com/in.php?${body}`)).json();
@@ -95,7 +109,7 @@ async function enroll(page, nombre, total) {
 async function harvestBatch(page, offset) {
   const counts = { pdfs: 0, xmls: 0 };
   for (let i = 0; i < BATCH_SIZE; i++) {
-    const row = offset + i;
+    const row = offset + i + 2; // ctl00/ctl01 are the header rows
     const gridSel = `#MainContent_GVHistorial_ctl${String(row).padStart(2, "0")}`;
     const rowEl = await page.$(gridSel);
     if (!rowEl) break;
@@ -104,19 +118,36 @@ async function harvestBatch(page, offset) {
       page.waitForEvent("download", { timeout: 30000 }).catch(() => null),
       rowEl.$eval("input[name*='DescargaPDF']", (b) => b.click()).catch(() => null),
     ]);
-    if (pdf) counts.pdfs += 1;
+    if (pdf) {
+      counts.pdfs += 1;
+      const p = await pdf.path();
+      require("fs").copyFileSync(p, `/app/data/${RPU}/${path.basename(p)}`);
+    }
     await sleep(1500);
     const [xml] = await Promise.all([
       page.waitForEvent("download", { timeout: 30000 }).catch(() => null),
       rowEl.$eval("input[name*='DescargaXMLFactura']", (b) => b.click()).catch(() => null),
     ]);
-    if (xml) counts.xmls += 1;
+    if (xml) {
+      counts.xmls += 1;
+      const p = await xml.path();
+      require("fs").copyFileSync(p, `/app/data/${RPU}/${path.basename(p)}`);
+    }
     await sleep(1500);
   }
   return counts;
 }
 
+async function egressIsMX() {
+  const r = await fetch("https://ipinfo.io/json");
+  const j = await r.json();
+  if (j.country !== "MX") {
+    throw new Error(`geo_blocked: egress is ${j.country}, need MX (NordVPN -> Mexico)`);
+  }
+}
+
 async function main() {
+  await egressIsMX();
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: "new",
@@ -133,15 +164,19 @@ async function main() {
     const nombre = process.env.CF_ENROLL_NOMBRE || "";
     const total = process.env.CF_ENROLL_TOTAL || "";
     if (nombre && total) await enroll(page, nombre, total);
+    require("fs").mkdirSync(`/app/data/${RPU}`, { recursive: true });
     let pdfs = 0, xmls = 0, offset = 0;
     for (let batch = 0; batch < 12; batch++) {
       const c = await harvestBatch(page, offset);
       pdfs += c.pdfs; xmls += c.xmls;
       if (c.pdfs === 0 && c.xmls === 0) break;
       offset += BATCH_SIZE;
-      if (batch % 1 === 0 && offset < 72) await loginCycle(page); // 6-budget re-login
+      await loginCycle(page); // 6-download budget: re-login between batches
     }
-    console.log(JSON.stringify({ rpu: RPU, months: xmls, pdfs, xmls }));
+    console.log(JSON.stringify({
+      rpu: RPU, months: xmls, pdfs, xmls,
+      state: xmls >= 12 ? "harvested" : "partial",
+    }));
     await browser.close();
     return 0;
   } catch (err) {

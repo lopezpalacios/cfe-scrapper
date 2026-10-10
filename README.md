@@ -16,8 +16,8 @@ POST /v1/rpu {rpu, webhook?}          (edge function rpu-intake -> hermes.jobs)
 Hermes worker (Mac mini, user newman) ── WhatsApp: invoice arrives, barcode -> RPU
         │                                  ── cf-invoice-harvest skill
         ├── phone: adb -> CFE Contigo -> nombre/total -> CFDI by email
-        ├── box:   ssh newman-ubuntu (MX residential IP) -> MiEspacio login
-        │          + MFA (IMAP) + enrollment + ~6-download batches
+        ├── in-service (mini + NordVPN-MX): MiEspacio login + MFA (IMAP)
+        │          + enrollment + ~6-download batches (service/harvest/)
         └── CFDI parse -> JSON {rpu, nombre, rfc, direccion, tarifa,
              periodo[], total, consumo_kwh, historial[]} -> Supabase
         │
@@ -39,8 +39,9 @@ Dashboard: invoice stats + history, rendered from cfe.* (this repo, phase 3)
 
 ## Hard rules
 
-- ALL CFE/CENACE-facing egress from `newman-ubuntu` only (the MX residential
-  IP). The mini never fetches from cenace/cfe/DOF.
+- ALL CFE/CENACE-facing egress ONLY while the mini's NordVPN is on a MEXICO
+  server (runtime-enforced by the worker's vpn_guard). newman-ubuntu is the
+  legacy fallback, retired as the egress path.
 - MiEspacio: ~6 downloads per session, then re-login; respect 503 Retry-After.
 - Never log CFE passwords or the service-role key. Barcode = RPU's carrier only.
 - The document is the CFDI XML: every field traces to it (see docs/data-model.md).

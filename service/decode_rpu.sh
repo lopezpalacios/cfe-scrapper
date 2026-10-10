@@ -3,7 +3,7 @@
 # The document is ONLY the RPU's carrier: we read its barcode, nothing else.
 # Output: the 12-digit RPU on stdout. Exit 1 = barcode_unreadable.
 set -u
-PATH="/Users/newman/.nix-profile/bin:$PATH"
+PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"
 
 f="$1"
 [ -f "$f" ] || { echo "missing file: $f" >&2; exit 2; }
@@ -28,8 +28,10 @@ for img in "${imgs[@]}"; do
   # Low-res retry: a WhatsApp-scaled photo can sit below zbar's ~100-DPI
   # floor. Upscale once (sips is on macOS) and rescan before giving up.
   if ! grep -qE '^01[0-9]{12}' "$work/payloads.txt"; then
-    sips -Z 3000 "$img" --out "$work/big.png" >/dev/null 2>&1 \
-      && zbarimg --raw -q "$work/big.png" 2>/dev/null >> "$work/payloads.txt" || true
+    if command -v sips >/dev/null 2>&1; then
+      sips -Z 3000 "$img" --out "$work/big.png" >/dev/null 2>&1 \
+        && zbarimg --raw -q "$work/big.png" 2>/dev/null >> "$work/payloads.txt" || true
+    fi
   fi
 done
 
